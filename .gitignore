@@ -1,11 +1,34 @@
+# ===== 不发布到公开仓库的内容 =====
+
 # 图源资料（版权文件 + 体积大，不入库）
 资料/
 
-# 工作文件与备份
+# 给 AI / 未来的自己看的项目内工作记录，不对外发布
+交接文档.md
+
+# 工作中间产物与备份
 _work/
 _原始备份_待筛选/
 model.zip
+*.bak
+*.tmp
+*.part
 
-# 系统文件
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 系统 / 编辑器
 Thumbs.db
 desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# 临时渲染 / 截图（几何核验用）
+chk*.png
+zoom_*.png
+viewerlike_*.png
+intl_*.png

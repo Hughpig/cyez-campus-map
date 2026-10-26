@@ -8,8 +8,14 @@
 import json, sys, io
 from pathlib import Path
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+    HAS_CV = True
+except ImportError:      # 没装 opencv 时仍可重建 viewer：只要 img/ 里已有旧压缩副本
+    cv2 = None
+    np = None
+    HAS_CV = False
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parent.parent
@@ -28,6 +34,12 @@ def prep_image(src_rel, out_name, max_side=1400, quality=80):
     IMG_DIR.mkdir(exist_ok=True)
     out = IMG_DIR / out_name
     if (not out.exists()) or out.stat().st_mtime < src.stat().st_mtime:
+        if not HAS_CV:
+            if out.exists():
+                print(f"  [warn] 未安装 opencv，沿用已有的压缩副本 img/{out_name}")
+                return f"img/{out_name}"
+            print(f"  [warn] 未安装 opencv，无法生成 img/{out_name}（将退回引用 资料/ 原图，云端会看不到叠加）")
+            return None
         im = cv2.imdecode(np.fromfile(str(src), dtype=np.uint8), cv2.IMREAD_COLOR)
         if im is None:
             print(f"  [warn] 叠加原图无法解码：{src_rel}")

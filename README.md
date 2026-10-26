@@ -16,13 +16,13 @@ GitHub Pages 部署后直接打开 **viewer.html** 即可（无需安装任何�
 ```
 viewer.html            查看器（构建产物；由 tools/build_viewer.py 生成）
 model/
-  campus.json          校园总图（23 个地块：楼栋/广场/球场/出入口等）
-  buildings/*.json     7 栋楼 34 个楼层、639 个房间的平面模型
+  campus.json          校园总图（22 个地块：楼栋/广场/球场/出入口等）
+  buildings/*.json     7 栋楼 32 个楼层图、666 个房间的平面模型
   schema.md            数据格式定义
   README.md            数据说明
 tools/
   build_viewer.py      数据注入模板生成 viewer.html
-  validate.py          结构/引用/坐标越界校验
+  validate.py          数据体检：结构/引用/自交/重叠/覆盖率/底图尺寸
   calibrate.py         米/像素比例标定
   viewer_template.html 查看器模板
 交接文档.md            项目工作记录（数据约定、实况修正史、遗留问题）
