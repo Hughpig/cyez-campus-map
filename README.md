@@ -17,7 +17,7 @@ GitHub Pages 部署后直接打开 **viewer.html** 即可（无需安装任何�
 viewer.html            查看器（构建产物；由 tools/build_viewer.py 生成）
 model/
   campus.json          校园总图（22 个地块：楼栋/广场/球场/出入口等）
-  buildings/*.json     7 栋楼 32 个楼层图、666 个房间的平面模型
+  buildings/*.json     7 栋楼 32 个楼层图、662 个房间的平面模型
   schema.md            数据格式定义
   README.md            数据说明
 tools/
