@@ -104,6 +104,61 @@ def grade(v):
     return "差"
 
 
+def build_floors_report(args):
+    """逐楼层图体检：每层读自己的平面图 PNG，量 outline 与所有房间多边形到墨线的距离。"""
+    import glob
+    rows = []
+    for fp in sorted(glob.glob(os.path.join(ROOT, "model", "buildings", "*.json"))):
+        d = json.load(open(fp, encoding="utf-8"))
+        b = d.get("building")
+        bname = b if isinstance(b, str) else (b or {}).get("name", os.path.basename(fp))
+        if args.id and bname not in args.id:
+            continue
+        bdir = (d.get("meta") or {}).get("sourceDir")
+        for f in d.get("floors", []):
+            s = f.get("sourceImageFull") or f.get("sourceImage")
+            if not s:
+                continue
+            path = s if os.path.isabs(s) else os.path.join(ROOT, s)
+            if not os.path.exists(path):
+                alt = os.path.join(ROOT, f.get("sourceDir") or bdir or "",
+                                   os.path.basename(f.get("sourceImage") or s))
+                if not os.path.exists(alt):
+                    print("  [skip] %s/%s 找不到图：%s" % (bname, f.get("id"), s))
+                    continue
+                path = alt
+            g, ink, dist = load_ink(path)
+            mpp = f.get("metersPerPixel") or (d.get("coordinateSystem") or {}).get("metersPerPixel") or 0
+            rooms = [r for r in f.get("rooms", []) if len(r.get("polygon") or []) >= 3]
+            sts = [(r, poly_stats(dist, r["polygon"])) for r in rooms]
+            ol = (f.get("outline") or {}).get("polygon")
+            ost = poly_stats(dist, ol) if ol and len(ol) >= 3 else None
+            if not sts and not ost:
+                continue
+            means = [st["mean"] for _, st in sts]
+            worst = max(sts, key=lambda kv: kv[1]["mean"]) if sts else None
+            rows.append({
+                "bname": bname, "fid": f.get("id"), "n": len(sts), "mpp": mpp,
+                "mean": float(np.mean(means)) if means else 0.0,
+                "worst": worst, "ol": ost, "path": path,
+            })
+    rows.sort(key=lambda r: -r["mean"])
+    hdr = "%-12s %-10s %4s %8s %9s  %s" % ("楼栋", "楼层", "房间", "房间均值", "折算", "最差房间")
+    print("\n" + hdr)
+    print("-" * 96)
+    for r in rows:
+        conv = ("%.2fm" % (r["mean"] * r["mpp"])) if r["mpp"] else "-"
+        w = ""
+        if r["worst"]:
+            w = "%s %s %.1fpx" % (r["worst"][0]["id"], (r["worst"][0].get("name") or "")[:14],
+                                  r["worst"][1]["mean"])
+        print("%-12s %-10s %4d %8.2f %9s  %s" % (r["bname"][:12], str(r["fid"])[:10], r["n"],
+                                                r["mean"], conv, w))
+    print("\n说明：楼层图里家具/填充/标注很密，房间边离任何墨线都很近，所以这里 1~3px 才算正常；")
+    print("      重点看排序末尾那几层和「最差房间」——那些房间的墙线多半描错了位置。")
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true", help="打印每条边明细")
@@ -112,7 +167,14 @@ def main():
     ap.add_argument("--mpp", type=float, default=0.24, help="每像素米数，用于折算（默认 0.24）")
     ap.add_argument("--out", help="出标记图（超差边画红、正常边画绿）")
     ap.add_argument("--json", help="把结果写成 json")
+    ap.add_argument("--floors", action="store_true", help="改查楼栋楼层图：量 outline/房间到本层平面图墨线的距离")
+    ap.add_argument("--building", action="append", help="配合 --floors，只看指定楼栋（按 building 名）")
     args = ap.parse_args()
+
+    if args.floors:
+        args.id = args.building or args.id
+        build_floors_report(args)
+        return 0
 
     d = json.load(open(CAMPUS, encoding="utf-8"))
     src = d["meta"]["sourceImageFull"]
