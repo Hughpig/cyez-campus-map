@@ -89,6 +89,16 @@
   .open.line { stroke: #ff8c2e; stroke-width: 2.4; }
   .open.selrel { fill: #ffd23e; }
   .axis { stroke: #ff5d5d88; stroke-width: .6; }
+
+  /* ===== X-Y 坐标网格 ===== */
+  .xyG { pointer-events: none; }
+  .xyG .mn  { stroke: #8fb8ef; stroke-opacity: .17; }
+  .xyG .mjh { stroke: #ffffff; stroke-opacity: .26; }
+  .xyG .mj  { stroke: #6ea4ea; stroke-opacity: .60; }
+  .xyG .ax  { stroke: #ff7b7b; stroke-opacity: .75; }
+  .xyG text { fill: #d9e7ff; paint-order: stroke; stroke: rgba(8,10,14,.80); stroke-linejoin: round; text-anchor: middle; user-select: none; }
+  .xyG .sbl { stroke: #eaf1ff; fill: none; }
+  .xyG .sbt { fill: #eaf1ff; }
 </style>
 </head>
 <body>
@@ -109,13 +119,14 @@
       <input type="range" id="imgOp" min="0" max="100" value="35" title="原图不透明度">
       <label><input type="checkbox" id="ckLbl" checked> 名称</label>
       <label><input type="checkbox" id="ckGrid"> 轴网</label>
+      <label title="显示随缩放自适应的 X-Y 坐标网格与比例尺"><input type="checkbox" id="ckXY"> 坐标网格</label>
       <label><input type="checkbox" id="ckOpen" checked> 门口</label>
       <label><input type="checkbox" id="ckVert" checked> 楼梯电梯标注</label>
       <span class="meta" id="tbScale"></span>
     </div>
     <div id="canvasWrap">
       <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
-      <div id="hint">滚轮缩放 · 拖拽平移 · ←/→ 切楼层 · 点击房间看连通</div>
+      <div id="hint">滚轮缩放 · 拖拽平移 · ←/→ 切楼层 · G 切网格 · 点击房间看连通</div>
       <div id="tooltip"></div>
     </div>
   </div>
@@ -301,8 +312,13 @@ function render() {
     });
   }
 
+  // X-Y 坐标网格（内容由 drawGrid 按当前视口填充）
+  g += '<g id="xyGridG" class="xyG"></g>';
+
   svg.innerHTML = g;
+
   bindRoomEvents();
+  drawGrid();          // 网格跟随当前 viewBox 重算格距
   // 恢复缩放记忆（同层切换时）
 }
 
@@ -324,7 +340,121 @@ function fitVB() {
   else { const nw = vb.h * aw; vb.x -= (nw - vb.w)/2; vb.w = nw; }
   applyVB();
 }
-function applyVB() { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
+function applyVB() {
+  svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  if (document.getElementById('xyGridG')) drawGrid();   // 缩放/平移后重算格距与标注
+}
+
+/* ---------- X-Y 坐标网格 + 比例尺 ---------- */
+const GRID_CANDS_M  = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
+const GRID_CANDS_PX = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
+
+function pickNice(target, cands) {
+  for (const c of cands) if (c >= target) return c;
+  return cands[cands.length - 1];
+}
+
+/* 按"一格约 110 屏幕像素"选一个好看的格距：有比例尺就取整数米，否则取整数像素 */
+function gridPlan() {
+  const wrap = document.getElementById('canvasWrap');
+  const W = wrap.clientWidth || 900;
+  const s = vb.w / W;                 // 1 屏幕像素 = s 个数据单位
+  const mpp = floorScale();
+  if (mpp > 0) {
+    const stepM = pickNice(s * 110 * mpp, GRID_CANDS_M);
+    return {step: stepM / mpp, s, mpp, unit: 'm', stepVal: stepM};
+  }
+  const stepPx = pickNice(s * 110, GRID_CANDS_PX);
+  return {step: stepPx, s, mpp: null, unit: 'px', stepVal: stepPx};
+}
+
+function fmtNum(v) { return Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(1); }
+
+function drawGrid() {
+  const el = document.getElementById('xyGridG');
+  if (!el) return;
+  if (!document.getElementById('ckXY').checked) { el.innerHTML = ''; return; }
+
+  const wrap = document.getElementById('canvasWrap');
+  const s = vb.w / (wrap.clientWidth || 900);
+  const p = gridPlan();
+  const step = p.step;
+  if (!(step > 0)) { el.innerHTML = ''; return; }
+
+  const x0 = vb.x, y0 = vb.y, x1 = vb.x + vb.w, y1 = vb.y + vb.h;
+  const L = 1;                                     // 线宽基准（屏幕像素）
+  let o = '';
+
+  // 次网格：在主格之间五等分，屏幕间距 ≥9px 才画
+  const minor = step / 5;
+  if (minor / s >= 9) {
+    const i0 = Math.ceil(x0 / minor), i1 = Math.floor(x1 / minor);
+    if (i1 - i0 < 400) {
+      for (let i = i0; i <= i1; i++) {
+        const x = i * minor;
+        o += `<line class="mn" x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" style="stroke-width:${0.8 * s * L}"/>`;
+      }
+      const j0 = Math.ceil(y0 / minor), j1 = Math.floor(y1 / minor);
+      for (let j = j0; j <= j1; j++) {
+        const y = j * minor;
+        o += `<line class="mn" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" style="stroke-width:${0.8 * s * L}"/>`;
+      }
+    }
+  }
+
+  const fs = 10 * s, halo = 3 * s, lw = 1 * s;
+  const labVal = k => fmtNum(p.unit === 'm' ? k * p.stepVal : k * step);   // k = 第几条线
+
+  // 主网格（竖向）+ 顶部刻度值
+  let i0 = Math.ceil(x0 / step), i1 = Math.floor(x1 / step);
+  if (i1 - i0 < 300) {
+    for (let i = i0; i <= i1; i++) {
+      const x = i * step;
+      if (Math.abs(x) < 1e-6) {
+        o += `<line class="ax" x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" style="stroke-width:${1.8 * s}"/>`;
+      } else {
+        o += `<line class="mjh" x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" style="stroke-width:${3 * s}"/>`
+           + `<line class="mj" x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" style="stroke-width:${lw}"/>`;
+      }
+      o += `<text x="${x}" y="${y0 + 13 * s}" style="font-size:${fs}px;stroke-width:${halo}px">${labVal(i)}</text>`;
+    }
+  }
+
+  // 主网格（横向）+ 左侧刻度值
+  let j0 = Math.ceil(y0 / step), j1 = Math.floor(y1 / step);
+  if (j1 - j0 < 300) {
+    for (let j = j0; j <= j1; j++) {
+      const y = j * step;
+      if (Math.abs(y) < 1e-6) {
+        o += `<line class="ax" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" style="stroke-width:${1.8 * s}"/>`;
+      } else {
+        o += `<line class="mjh" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" style="stroke-width:${3 * s}"/>`
+           + `<line class="mj" x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" style="stroke-width:${lw}"/>`;
+      }
+      // 靠近左上角的那条让位给 X 轴刻度
+      if (y > y0 + 26 * s) {
+        o += `<text x="${x0 + 6 * s}" y="${y + 3.4 * s}" text-anchor="start" style="font-size:${fs}px;stroke-width:${halo}px">${labVal(j)}</text>`;
+      }
+    }
+  }
+
+  /* --- 右下角比例尺 --- */
+  const barData = p.mpp > 0
+    ? pickNice(90 * s * p.mpp, GRID_CANDS_M) / p.mpp
+    : pickNice(90 * s, GRID_CANDS_PX);
+  const barVal = p.mpp > 0 ? barData * p.mpp : barData;
+  const bw = barData, bx = x1 - 22 * s - bw, by = y1 - 46 * s;
+  o += `<rect x="${bx - 14 * s}" y="${by - 32 * s}" width="${bw + 28 * s}" height="${62 * s}" rx="${7 * s}"`
+     + ` fill="#0e1013" fill-opacity=".78" stroke="#4f9cf9" stroke-opacity=".5" style="stroke-width:${lw}"/>`
+     + `<text class="sbt" x="${bx + bw / 2}" y="${by - 13 * s}" style="font-size:${11 * s}px;stroke-width:${halo}px">${fmtNum(barVal)} ${p.unit}</text>`
+     + `<line class="sbl" x1="${bx}" y1="${by}" x2="${bx + bw}" y2="${by}" style="stroke-width:${2 * s}"/>`
+     + `<line class="sbl" x1="${bx}" y1="${by - 5 * s}" x2="${bx}" y2="${by + 5 * s}" style="stroke-width:${2 * s}"/>`
+     + `<line class="sbl" x1="${bx + bw}" y1="${by - 5 * s}" x2="${bx + bw}" y2="${by + 5 * s}" style="stroke-width:${2 * s}"/>`
+     + `<text class="sbt" x="${bx + bw / 2}" y="${by + 19 * s}" style="font-size:${9 * s}px;stroke-width:${2.6 * s}px">每格 ${fmtNum(p.stepVal)} ${p.unit}</text>`;
+
+  el.innerHTML = o;
+}
+
 
 function bindRoomEvents() {
   const tip = document.getElementById('tooltip');
@@ -418,6 +548,7 @@ document.getElementById('ckImg').addEventListener('change', render);
 document.getElementById('imgOp').addEventListener('input', () => { const im = document.getElementById('bgImg'); if (im) im.setAttribute('opacity', document.getElementById('imgOp').value/100); });
 document.getElementById('ckLbl').addEventListener('change', render);
 document.getElementById('ckGrid').addEventListener('change', render);
+document.getElementById('ckXY').addEventListener('change', drawGrid);
 document.getElementById('ckOpen').addEventListener('change', render);
 document.getElementById('ckVert').addEventListener('change', render);
 
@@ -425,6 +556,10 @@ window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   if (e.key === 'ArrowLeft' && curF > 0) { curF--; selId=null; refreshAll(); }
   if (e.key === 'ArrowRight' && curF < floorsOf(curB).length-1) { curF++; selId=null; refreshAll(); }
+  if (e.key === 'g' || e.key === 'G') {
+    const ck = document.getElementById('ckXY');
+    ck.checked = !ck.checked; drawGrid();
+  }
 });
 window.selectRoom = selectRoom;
 
