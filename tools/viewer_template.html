@@ -349,9 +349,16 @@ function applyVB() {
 const GRID_CANDS_M  = [0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 const GRID_CANDS_PX = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000];
 
+/* 挑一个"好看"的格距：取与目标最接近的候选（按比例距离算），
+   这样不会因为目标刚刚超过某个候选就跳到两倍大的下一个（如 26m 目标跳到 50m）。 */
 function pickNice(target, cands) {
-  for (const c of cands) if (c >= target) return c;
-  return cands[cands.length - 1];
+  if (!(target > 0)) return cands[0];
+  let best = cands[0], bd = Infinity;
+  for (const c of cands) {
+    const d = Math.abs(Math.log(c / target));
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
 }
 
 /* 按"一格约 110 屏幕像素"选一个好看的格距：有比例尺就取整数米，否则取整数像素 */
@@ -385,8 +392,13 @@ function drawGrid() {
   const L = 1;                                     // 线宽基准（屏幕像素）
   let o = '';
 
-  // 次网格：在主格之间五等分，屏幕间距 ≥9px 才画
-  const minor = step / 5;
+  // 次网格：优先在主格之间五等分；若五等分结果不是"整齐"的数（如 2m 格的 0.4m），改用二等分
+  const niceMinor = v => {
+    const e = Math.pow(10, Math.floor(Math.log10(v))), m = v / e;
+    return [1, 2, 2.5, 5].some(x => Math.abs(m - x) < 1e-6);
+  };
+  let minor = step / 5;
+  if (!niceMinor(minor)) minor = step / 2;
   if (minor / s >= 9) {
     const i0 = Math.ceil(x0 / minor), i1 = Math.floor(x1 / minor);
     if (i1 - i0 < 400) {
